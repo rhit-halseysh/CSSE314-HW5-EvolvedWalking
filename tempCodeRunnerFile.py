@@ -1,1 +1,1 @@
-set_color
+1

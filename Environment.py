@@ -6,72 +6,91 @@ import neat
 import sys
 import os
 
+#Inspiration drawn from https://github.com/monokim/PyWalk/tree/master
+
 
 friction = 0.9
 body_friction = 0.5
 space = pymunk.Space()
 space.gravity = (0.0, 900.0) # -900
 generation = 0
+lower_x_bound = 200
+upper_x_bound = 400
 
 
 class Walker(object):
+    
 
     def __init__(self) -> None:
+        
+        self.time_alive = 0
         
         # BODY SET-UP
         moment = 5
         
-        # Top
-        
-        top_moment = pymunk.moment_for_circle(moment, 0, 30)
-        self.body = pymunk.Body(moment, top_moment)
-        self.shape = pymunk.Circle(None, 15)
-        self.body.position = (100, 500)
-        self.shape.body = self.body
-        
-        # Thigh
-        
+        # Define the thigh
         thigh_size = (20, 40)
         self.thigh_shape = pymunk.Poly.create_box(None, thigh_size)
         thigh_moment = pymunk.moment_for_poly(moment, self.thigh_shape.get_vertices())
         self.thigh_body = pymunk.Body(moment, thigh_moment)
-        self.thigh_body.position = (self.body.position.x-20, self.body.position.y-40)
+
+        # Set the thigh position as the base
+        self.thigh_body.position = (300, 450)
         self.thigh_shape.body = self.thigh_body
         self.thigh_shape.friction = body_friction
-        self.thigh_joint = pymunk.PivotJoint(self.thigh_body, self.body, (0, thigh_size[1] / 2), (-20, -50))
-        self.thigh_motor = pymunk.SimpleMotor(self.body, self.thigh_body, 0)
+
+        # Define the top
+        top_moment = pymunk.moment_for_circle(moment, 0, 30)
+        self.body = pymunk.Body(moment, top_moment)
+        self.shape = pymunk.Circle(None, 15)
+
+        # Set the top position directly relative to the thigh part
+        self.body.position = (self.thigh_body.position.x, self.thigh_body.position.y + thigh_size[1] / 2 - 50)
+        self.shape.body = self.body
         
-        # Leg
-        
+        # Give top a push to start it off
+        self.body.apply_impulse_at_local_point((100, 0))
+
+        # Create a joint to directly connect the thigh to the top
+        self.thigh_joint = pymunk.PivotJoint(self.thigh_body, self.body, (0, thigh_size[1] / 2), (0, 0))
+        self.thigh_motor = pymunk.SimpleMotor(self.thigh_body, self.body, 0)
+
+        # Define the leg
         leg_size = (10, 50)
         self.leg_shape = pymunk.Poly.create_box(None, leg_size)
         leg_moment = pymunk.moment_for_poly(moment, self.leg_shape.get_vertices())
         self.leg_body = pymunk.Body(moment, leg_moment)
-        self.leg_body.position = (self.thigh_body.position.x, self.thigh_body.position.y - 100)
+
+        # Set the leg position directly relative to the thigh
+        self.leg_body.position = (self.thigh_body.position.x, self.thigh_body.position.y - thigh_size[1] / 2 - leg_size[1] / 2)
         self.leg_shape.body = self.leg_body
         self.leg_shape.friction = body_friction
+
+        # Create a joint to connect the leg to the thigh
         self.leg_joint = pymunk.PivotJoint(self.leg_body, self.thigh_body, (0, leg_size[1] / 2), (0, -thigh_size[1] / 2))
         self.leg_motor = pymunk.SimpleMotor(self.thigh_body, self.leg_body, 0)
-        
-        # Foot
-        
+
+        # Define the foot
         foot_size = (35, 15)
         self.foot_shape = pymunk.Poly.create_box(None, foot_size)
         foot_moment = pymunk.moment_for_poly(moment, self.foot_shape.get_vertices())
         self.foot_body = pymunk.Body(moment, foot_moment)
-        self.foot_body.position = (self.leg_body.position.x + foot_size[0]/2, self.leg_body.position.y + (foot_size[1]/2 + leg_size[1]/2))
+
+        # Set the foot position relative to the leg
+        self.foot_body.position = (self.leg_body.position.x, self.leg_body.position.y - leg_size[1] / 2 - foot_size[1] / 2)
         self.foot_shape.body = self.foot_body
         self.foot_shape.friction = body_friction
         self.foot_shape.mass = 30
-        self.foot_joint = pymunk.PivotJoint(self.leg_body, self.foot_body, (-5, -leg_size[1] / 2), (-foot_size[0]/2 + 10, foot_size[1]/2))
+
+        # Create a joint to connect the foot to the leg
+        self.foot_joint = pymunk.PivotJoint(self.leg_body, self.foot_body, (0, -leg_size[1] / 2), (0, foot_size[1] / 2))
         self.foot_motor = pymunk.SimpleMotor(self.leg_body, self.foot_body, 0)
-        
-        # Add components to Space
-        
-        space.add(self.body, self.shape)
-        space.add(self.thigh_body, self.thigh_shape, self.thigh_joint, self.thigh_motor)
-        space.add(self.leg_body, self.leg_shape, self.leg_joint, self.leg_motor)
-        space.add(self.foot_body, self.foot_shape, self.foot_joint, self.foot_motor)
+
+        # Add the joints and shapes to the space
+        space.add(self.thigh_shape, self.thigh_body, self.shape, self.body, self.thigh_joint, self.thigh_motor, 
+                  self.leg_shape, self.leg_body, self.leg_joint, self.leg_motor, 
+                  self.foot_shape, self.foot_body, self.foot_joint, self.foot_motor)
+
         
         # Deal with body collisions
         
@@ -94,21 +113,28 @@ class Walker(object):
         foot = ((360 - math.degrees(self.foot_body.angle)) - (360 - math.degrees(self.body.angle))) / 360.0
         return self.body.angle, thigh, leg, foot
     
-    def get_shapes(self):
-        body = self.body, self.shape
-        thigh = self.thigh_body, self.thigh_shape, self.thigh_joint, self.thigh_motor
-        leg = self.leg_body, self.leg_shape, self.leg_joint, self.leg_motor
-        foot = self.foot_body, self.foot_shape, self.foot_joint, self.foot_motor
-
-        return body, thigh, leg, foot
-    
-    def set_color(self, color, rest_color = (0, 0, 255), shoe_color = (50, 50, 50)):
-        self.shape.color = color
-        self.thigh_shape.color = rest_color
-        self.leg_shape.color = rest_color
-        self.foot_shape.color = shoe_color
+    def remove_shapes(self):
+        
+        space.remove(self.body)
+        space.remove(self.shape)
+        space.remove(self.thigh_body)
+        space.remove(self.thigh_shape)
+        space.remove(self.thigh_joint)
+        space.remove(self.thigh_motor)
+        
+        space.remove(self.leg_body)
+        space.remove(self.leg_shape)
+        space.remove(self.leg_joint)
+        space.remove(self.leg_motor)
+        
+        space.remove(self.foot_body)
+        space.remove(self.foot_shape)
+        space.remove(self.foot_joint)
+        space.remove(self.foot_motor)
     
     def update(self):
+        
+        self.time_alive += 1
         
         # Thigh
         self.thigh_flag = False
@@ -137,50 +163,26 @@ class Walker(object):
             self.foot_motor.rate = 0
             self.foot_flag = True
 
-        #self.body.position.y <= 100 or
         #TODO: Change these constants
-        if (self.body.position.x > 800 and self.body.position.y <= 800):
+        if (self.time_alive > 500 and lower_x_bound <= self.body.position.x <= upper_x_bound) or self.body.position.y > 550 or self.body.position.x > 800:
+        #(self.time_alive > 500 and lower_x_bound <= self.body.position.x <= upper_x_bound) or 
             self.is_done = True
-            space.remove(self.get_shapes())
-
-    def _process_events(self) -> None:
-        """
-        Handle game and events like keyboard input. Call once per frame only.
-        :return: None
-        """
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self._running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                self._running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_p:
-                pygame.image.save(self._screen, "bouncing_balls.png")
-
-    def _clear_screen(self) -> None:
-        """
-        Clears the screen.
-        :return: None
-        """
-        self._screen.fill(pygame.Color("white"))
-
-    def _draw_objects(self) -> None:
-        """
-        Draw the objects.
-        :return: None
-        """
-        space.debug_draw(self._draw_options)
+            self.remove_shapes()
+            #space.remove(self.get_shapes())
         
     
-def add_static_scenery():
+def add_scenery():
+    
+    shape = pymunk.Poly.create_box(None, (800, 10))
+    shape.friction = 0.5
+    shape.elasticity = 1.0
+    moment = pymunk.moment_for_poly(1, shape.get_vertices())
+    body = pymunk.Body(9999, moment, body_type=pymunk.Body.KINEMATIC)
+    body.position = (600, 500)
+    shape.body = body
+    space.add(body, shape)
 
-        static_body = space.static_body
-        static_lines = [
-            pymunk.Segment(static_body, (0, 600 - 100), (1000, 600 - 100), 10.0),
-        ]
-        for line in static_lines:
-            line.elasticity = 0.95
-            line.friction = 0.9
-        space.add(*static_lines)
+    return shape
         
 def run_walker(genomes, config):
 
@@ -188,20 +190,18 @@ def run_walker(genomes, config):
         # Time step
         dt = 1.0 / 50.0
         # Number of physics steps per screen frame
-        physics_steps_per_frame = 1
-        #font = pygame.font.SysFont("Arial", 30)
 
         # pygame
         pygame.init()
         screen = pygame.display.set_mode((1000, 800))
         clock = pygame.time.Clock()
         draw_options = pymunk.pygame_util.DrawOptions(screen)
+        
+        font = pygame.font.SysFont("DejaVu Sans", 50)
 
         # Floor
-        add_static_scenery()
-
-        # Execution control 
-        running = True
+        floor = add_scenery()
+        floor.surface_velocity = (-25, 0)
 
         ruler = 0
         nets = []
@@ -222,6 +222,9 @@ def run_walker(genomes, config):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     sys.exit(0)
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    cursor_position = pygame.mouse.get_pos()
+                    print(f"Cursor position: {cursor_position}")
 
             for i, walker in enumerate(walkers):
                 output = nets[i].activate(walker.get_data())
@@ -241,7 +244,6 @@ def run_walker(genomes, config):
                         elif i == 5 and walker.foot_flag == False:
                             walker.foot_motor.rate = -speed
 
-            # check
             max = 0
             at = 0
             remain_walker = 0
@@ -249,7 +251,6 @@ def run_walker(genomes, config):
                 if not walker.is_done:
                     remain_walker += 1
                     walker.update()
-                  #  walker.set_color((240, 240, 240), (240, 240, 240), (240, 240, 240))
                     genomes[i][1].fitness += 0.1
                     distance = walker.body.position.x
                     if distance > walker.distance:
@@ -263,26 +264,22 @@ def run_walker(genomes, config):
             if remain_walker == 0:
                 break
 
-          #  walkers[at].set_color((255, 0, 0))
-            walker_position = walkers[at].body.position
             ruler -= (speed_up+1)
 
             tick += 1
             if tick == 600:
-               # land.surface_velocity = (-100 * speed_up, 0)
+                floor.surface_velocity = (-15 * speed_up, 0)
                 speed_up += 1
                 tick = 0
 
             space.step(dt)
             screen.fill((255, 255, 255))
-           # screen.blit(foundry, (0, screen_height - 300))
             space.debug_draw(draw_options)
-            #walkers[at].draw_face(screen)
 
-            #text = font.render("Generation : " + str(generation), True, (0, 0, 0))
-           # text_rect = text.get_rect()
-           # text_rect.center = (1000/2, 100)
-            #screen.blit(text, text_rect)
+            text = font.render("Generation : " + str(generation), True, (0, 0, 0))
+            text_rect = text.get_rect()
+            text_rect.center = (1000/2, 100)
+            screen.blit(text, text_rect)
 
             for i in range(ruler, 1700, 100):
                 pygame.draw.line(screen, (0, 0, 0), (i, 100 - 300), (i, 800 - 290))
